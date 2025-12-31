@@ -80,11 +80,4 @@ def classify_cha_files_in_directory(directory):
     return results
 
 
-# Utilisation example:
-"""results = classify_dataset("palasis_dataset")
 
-for t, files in results.items():
-    print(f"\nType {t}: {len(files)} files")
-    for f in files[:3]:
-        print("  ", f)
-"""
