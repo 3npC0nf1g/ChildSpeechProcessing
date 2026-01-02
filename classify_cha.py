@@ -2,62 +2,84 @@ import re
 from pathlib import Path
 from collections import defaultdict
 
-from plotly.io._kaleido import root_dir
-
 TIMESTAMP_RE = re.compile(r"\^U\d+_\d+\^U")
 
 
 def classify_cha_file(path):
     """
-    Classifies a .cha file into Type A / B / C
-    based on child utterance timestamp coverage.
+    Classify a CHILDES .cha file based on:
+    - presence of Target_Child participants
+    - presence of actual child utterances
+    - presence of timestamps on child utterances
     """
 
-    child_speakers = set()
+    child_speaker_ids = set()
+    has_target_child = False
     utterances = []
 
-    # --- first pass: identify Target_Child speakers ---
+    # ======================
+    # PASS 1 — METADATA
+    # ======================
     with open(path, encoding="utf-8") as f:
         for line in f:
+            if line.startswith("@Participants:"):
+                if "Target_Child" in line:
+                    has_target_child = True
+
             if line.startswith("@ID:"):
                 parts = line.strip().split("|")
-                if len(parts) >= 6 and parts[5] == "Target_Child":
-                    child_speakers.add(parts[2])
+                # CHILDES invariant:
+                # speaker code = parts[2]
+                # role = last meaningful field
+                if len(parts) >= 3 and "Target_Child" in parts:
+                    child_speaker_ids.add(parts[2])
+                    has_target_child = True
 
-    # --- second pass: collect child utterances ---
+    # ======================
+    # PASS 2 — UTTERANCES
+    # ======================
     with open(path, encoding="utf-8") as f:
         for line in f:
             if not line.startswith("*"):
                 continue
 
-            speaker, content = line.split(":", 1)
-            speaker = speaker.replace("*", "").strip()
-
-            if speaker not in child_speakers:
+            if ":" not in line:
                 continue
 
-            has_timestamp = bool(TIMESTAMP_RE.search(content))
-            has_xxx = "xxx" in content.lower()
+            speaker, content = line.split(":", 1)
+            speaker = speaker[1:].strip()  # remove '*'
+
+            # CHILD DETECTION (strict but correct)
+            is_child = (
+                speaker == "CHI"  # legacy CHILDES
+                or speaker in child_speaker_ids
+            )
+
+            if not is_child:
+                continue
 
             utterances.append({
                 "speaker": speaker,
-                "has_timestamp": has_timestamp,
-                "has_xxx": has_xxx,
-                "raw": content.strip()
+                "has_timestamp": bool(TIMESTAMP_RE.search(content)),
+                "has_xxx": "xxx" in content.lower(),
             })
 
-    # --- summary stats ---
+    # ======================
+    # SUMMARY + CLASS
+    # ======================
     total = len(utterances)
     with_ts = sum(u["has_timestamp"] for u in utterances)
 
-    if total == 0:
-        file_type = "EMPTY"
+    if not has_target_child:
+        file_type = "EMPTY"   # no children at all (metadata-level)
+    elif total == 0:
+        file_type = "EMPTY"   # children exist, but never speak
     elif with_ts == total:
-        file_type = "A"  # fully timestamped
+        file_type = "A"       # fully aligned
     elif with_ts > 0:
-        file_type = "B"  # partially timestamped
+        file_type = "B"       # partially aligned
     else:
-        file_type = "C"  # no timestamps
+        file_type = "B"       # child speech, no timestamps (IMPORTANT FIX)
 
     return {
         "file": path.name,
@@ -66,18 +88,16 @@ def classify_cha_file(path):
         "with_timestamps": with_ts,
         "without_timestamps": total - with_ts,
         "has_xxx": any(u["has_xxx"] for u in utterances),
-        "child_speakers": sorted(child_speakers)
+        "child_speakers": sorted(child_speaker_ids),
     }
 
 
 def classify_cha_files_in_directory(directory):
     results = defaultdict(list)
+    directory = Path(directory)
 
-    for cha_path in Path(root_dir).rglob("*.cha"):
+    for cha_path in directory.rglob("*.cha"):
         info = classify_cha_file(cha_path)
         results[info["type"]].append(info)
 
     return results
-
-
-
