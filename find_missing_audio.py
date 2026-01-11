@@ -21,8 +21,8 @@ def find_missing_audio(cha_dir: Path, audio_dir: Path) -> List[str]:
 
 # Exemple d'utilisation
 if __name__ == "__main__":
-    cha_dir = Path("data/2")
-    audio_dir = Path("data/2-songs")
+    cha_dir = Path("data/cha/2")
+    audio_dir = Path("data/songs/2")
 
     missing_files = find_missing_audio(cha_dir, audio_dir)
     if missing_files:
